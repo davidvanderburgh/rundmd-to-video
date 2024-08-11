@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { createCanvas, loadImage } from 'canvas';
+import { createCanvas } from 'canvas';
 import ffmpeg from 'fluent-ffmpeg';
 import ffmpegStatic from 'ffmpeg-static';
 
@@ -12,6 +12,7 @@ const canvasWidth = 128;
 const canvasHeight = 32;
 const scaleFactor = 10;
 const frameRate = 25; // Default frame rate, adjust as necessary
+const pixelSize = 10;  // Size of each pixel including border
 
 // Read and parse the JSON file
 const jsonData = JSON.parse(fs.readFileSync(jsonFilePath, 'utf8'));
@@ -21,12 +22,12 @@ if (!fs.existsSync(outputDir)) {
 }
 
 async function processFrame(frame: any) {
-  const canvas = createCanvas(canvasWidth, canvasHeight);
+  const canvas = createCanvas(canvasWidth * pixelSize, canvasHeight * pixelSize);
   const ctx = canvas.getContext('2d');
   
   // Set background color
   ctx.fillStyle = '#000000';
-  ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+  ctx.fillRect(0, 0, canvasWidth * pixelSize, canvasHeight * pixelSize);
   
   // Process bitmap
   const bitmap = frame.bitmap;
@@ -36,7 +37,7 @@ async function processFrame(frame: any) {
       const hex = row[x];
       const brightness = parseInt(hex, 16) / 15; // Normalize brightness
       ctx.fillStyle = `rgba(191, 87, 0, ${brightness})`;  // Dark Amber
-      ctx.fillRect(x, y, 1, 1);
+      ctx.fillRect(x * pixelSize, y * pixelSize, pixelSize - 1, pixelSize - 1);  // Pixel with border
     }
   }
   
