@@ -61,7 +61,7 @@ async function createVideo(outputPath: string, videoOutputPath: string, frames: 
   let frameLines: string[];
 
   if (frames.length === 1) {
-    // If there's only one frame, we repeat it to fill the duration
+    // If there's only one frame, repeat it to fill the duration
     const frame = frames[0];
     const escapedPath = path.posix.join(outputPath, `frame_${frame.frame_num.toString().padStart(3, '0')}.png`)
       .replace(/'/g, "'\\''")
@@ -95,9 +95,12 @@ duration ${frame.duration / 1000}`;
 
   const outputOptions = [
     `-vf scale=${canvasWidth * scaleFactor}:${canvasHeight * scaleFactor}`,
-    '-c:v libx264',
-    '-pix_fmt yuv420p',
-    '-shortest'  // Ensure the video ends at the shortest duration when repeating frames
+    '-c:v libx264',  // H.264 codec (you can also use -c:v libx265 for H.265 if needed)
+    '-crf 0',        // Lossless compression (use a higher CRF value like 18-23 for near-lossless)
+    '-preset veryslow', // Better compression and quality at the expense of encoding speed
+    '-pix_fmt yuv420p', // Pixel format for compatibility
+    '-movflags +faststart', // Fast start for web compatibility
+    '-shortest' // Ensure video ends at the shortest duration when repeating frames
   ];
 
   console.log(`Starting FFmpeg process...`);
