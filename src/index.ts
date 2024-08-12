@@ -6,15 +6,15 @@ import ffmpegStatic from 'ffmpeg-static';
 
 // Configuration
 const jsonDirPath = 'D:/Pinball/dmd/';
-const outputDir = 'output';
+const outputDir = path.resolve(__dirname, '..', 'output');
 const canvasWidth = 128;
 const canvasHeight = 32;
 const scaleFactor = 10;
-const frameRate = 25; // Default frame rate, adjust as necessary
 const pixelSize = 10;  // Size of each pixel including border
 
 type Frame = {
   frame_num: number;
+  duration: number;
   bitmap: string[];
 };
 
@@ -47,58 +47,128 @@ async function processFrame(frame: Frame, outputPath: string) {
 }
 
 // Function to create a video from the processed frames and delete the frames afterward
-async function createVideo(outputPath: string, videoOutputPath: string) {
+async function createVideo(outputPath: string, videoOutputPath: string, frames: Frame[]) {
+  console.log(`Creating video for output path: ${outputPath}`);
+  console.log(`Video output path: ${videoOutputPath}`);
+  
+  // Create a temporary file with frame durations
+  const framesFile = path.join(outputPath, 'frames.txt');
+  console.log(`Frames file path: ${framesFile}`);
+  
+  const frameLines = frames.map(frame => {
+    // Use path.posix to ensure forward slashes, then escape special characters
+    const escapedPath = path.posix.join(outputPath, `frame_${frame.frame_num.toString().padStart(3, '0')}.png`)
+      .replace(/'/g, "'\\''")
+      .replace(/[\[\]]/g, '\\$&');  // Escape square brackets
+    return `file '${escapedPath}'
+duration ${frame.duration / 1000}`;
+  });
+
+  console.log(`Writing frames file...`);
+  try {
+    await fs.promises.writeFile(framesFile, frameLines.join('\n'));
+    console.log(`Frames file written successfully.`);
+  } catch (err) {
+    console.error(`Error writing frames file:`, err);
+    throw err;
+  }
+
+  console.log(`Starting FFmpeg process...`);
   return new Promise((resolve, reject) => {
     ffmpeg()
       .setFfmpegPath(ffmpegStatic ?? '')
-      .addInput(path.join(outputPath, 'frame_%03d.png'))
-      .inputFPS(frameRate)
+      .input(framesFile)
+      .inputOptions(['-f concat', '-safe 0'])
       .outputOptions([
         `-vf scale=${canvasWidth * scaleFactor}:${canvasHeight * scaleFactor}`,
         '-c:v libx264',
         '-pix_fmt yuv420p'
       ])
-      .on('end', async () => {
-        // Delete the frame files after the video is created
-        const frameFiles = fs.readdirSync(outputPath).filter(file => file.startsWith('frame_') && file.endsWith('.png'));
-        for (const frameFile of frameFiles) {
-          fs.unlinkSync(path.join(outputPath, frameFile));
-        }
-        resolve(true);
+      .on('start', (commandLine) => {
+        console.log('FFmpeg command:', commandLine);
       })
-      .on('error', (err) => reject(err))
+      .on('end', async () => {
+        console.log(`FFmpeg process completed.`);
+        try {
+          // Delete the frame files and the temporary file after the video is created
+          const frameFiles = await fs.promises.readdir(outputPath);
+          for (const frameFile of frameFiles) {
+            if (frameFile.startsWith('frame_') && frameFile.endsWith('.png')) {
+              await fs.promises.unlink(path.join(outputPath, frameFile));
+            }
+          }
+          await fs.promises.unlink(framesFile);
+          console.log(`Cleanup completed.`);
+          resolve(true);
+        } catch (err) {
+          console.error('Error during cleanup:', err);
+          resolve(true); // Resolve anyway to not block the process
+        }
+      })
+      .on('error', (err, stdout, stderr) => {
+        console.error('FFmpeg error:', err);
+        console.error('FFmpeg stdout:', stdout);
+        console.error('FFmpeg stderr:', stderr);
+        reject(err);
+      })
       .save(videoOutputPath);
   });
 }
 
 // Function to process all JSON files in a directory
 async function processJsonFiles(dirPath: string) {
-  const files = fs.readdirSync(dirPath);
+  console.log(`Processing directory: ${dirPath}`);
+  const files = await fs.promises.readdir(dirPath);
   for (const file of files) {
     const fullPath = path.join(dirPath, file);
-    const stats = fs.statSync(fullPath);
+    const stats = await fs.promises.stat(fullPath);
     
     if (stats.isDirectory()) {
       await processJsonFiles(fullPath); // Recursively process subdirectories
     } else if (path.extname(file) === '.json') {
+      console.log(`Checking JSON file: ${fullPath}`);
       const relativePath = path.relative(jsonDirPath, dirPath);
-      const outputPath = path.join(outputDir, relativePath); // Use the output directory with the same folder structure
-
-      if (!fs.existsSync(outputPath)) {
-        fs.mkdirSync(outputPath, { recursive: true });
-      }
-      
-      const jsonData = JSON.parse(fs.readFileSync(fullPath, 'utf8'));
-      const sortedFrames = jsonData.frames.sort((a: Frame, b: Frame) => a.frame_num - b.frame_num);
-
-      for (const frame of sortedFrames) {
-        await processFrame(frame, outputPath);
-      }
-      
+      const outputPath = path.join(outputDir, relativePath);
       const videoOutputPath = path.join(outputPath, `${path.basename(file, '.json')}.mp4`);
-      await createVideo(outputPath, videoOutputPath);
-      console.log(`Video for ${file} created at ${videoOutputPath}`);
+
+      // Check if the output video file already exists
+      if (await fileExists(videoOutputPath)) {
+        console.log(`Video file already exists for ${file}. Skipping processing.`);
+        continue; // Skip to the next file
+      }
+
+      console.log(`Processing JSON file: ${fullPath}`);
+
+      try {
+        console.log(`Creating output directory: ${outputPath}`);
+        await fs.promises.mkdir(outputPath, { recursive: true });
+        
+        console.log(`Reading JSON file...`);
+        const jsonData = JSON.parse(await fs.promises.readFile(fullPath, 'utf8'));
+        const sortedFrames = jsonData.frames.sort((a: Frame, b: Frame) => a.frame_num - b.frame_num);
+
+        console.log(`Processing ${sortedFrames.length} frames...`);
+        for (const frame of sortedFrames) {
+          await processFrame(frame, outputPath);
+        }
+        
+        console.log(`Creating video at: ${videoOutputPath}`);
+        await createVideo(outputPath, videoOutputPath, sortedFrames);
+        console.log(`Video for ${file} created at ${videoOutputPath}`);
+      } catch (err) {
+        console.error(`Error processing ${file}:`, err);
+      }
     }
+  }
+}
+
+// Helper function to check if a file exists
+async function fileExists(filePath: string): Promise<boolean> {
+  try {
+    await fs.promises.access(filePath, fs.constants.F_OK);
+    return true;
+  } catch {
+    return false;
   }
 }
 
