@@ -29,11 +29,16 @@ async function processFrame(frame: Frame, outputPath: string) {
   
   // Process bitmap
   const bitmap = frame.bitmap;
+  const brightnessScale = 3;  // Adjust this factor to control overall brightness
+  const gamma = 2.2;  // Gamma correction factor
+  
   for (let y = 0; y < bitmap.length; y++) {
     const row = bitmap[y].replace(/\|/g, '');
     for (let x = 0; x < row.length; x++) {
       const hex = row[x];
-      const brightness = parseInt(hex, 16) / 15; // Normalize brightness
+      let brightness = parseInt(hex, 16) / 15;  // Normalize brightness
+      brightness = Math.pow(brightness * brightnessScale, 1 / gamma);  // Apply gamma correction
+      brightness = Math.min(brightness, 1);  // Ensure brightness doesn't exceed 1
       ctx.fillStyle = `rgba(191, 87, 0, ${brightness})`;  // Dark Amber
       ctx.fillRect(x * pixelSize, y * pixelSize, pixelSize - 1, pixelSize - 1);  // Pixel with border
     }
