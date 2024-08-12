@@ -54,19 +54,35 @@ async function processFrame(frame: Frame, outputPath: string) {
 async function createVideo(outputPath: string, videoOutputPath: string, frames: Frame[]) {
   console.log(`Creating video for output path: ${outputPath}`);
   console.log(`Video output path: ${videoOutputPath}`);
-  
-  // Create a temporary file with frame durations
+
   const framesFile = path.join(outputPath, 'frames.txt');
   console.log(`Frames file path: ${framesFile}`);
-  
-  const frameLines = frames.map(frame => {
-    // Use path.posix to ensure forward slashes, then escape special characters
+
+  let frameLines: string[];
+
+  if (frames.length === 1) {
+    // If there's only one frame, we repeat it to fill the duration
+    const frame = frames[0];
     const escapedPath = path.posix.join(outputPath, `frame_${frame.frame_num.toString().padStart(3, '0')}.png`)
       .replace(/'/g, "'\\''")
       .replace(/[\[\]]/g, '\\$&');  // Escape square brackets
-    return `file '${escapedPath}'
+
+    // Duplicate the frame line to fill the duration
+    frameLines = [
+      `file '${escapedPath}'`,
+      `duration ${frame.duration / 1000}`,
+      `file '${escapedPath}'`
+    ];
+  } else {
+    // Normal multi-frame processing
+    frameLines = frames.map(frame => {
+      const escapedPath = path.posix.join(outputPath, `frame_${frame.frame_num.toString().padStart(3, '0')}.png`)
+        .replace(/'/g, "'\\''")
+        .replace(/[\[\]]/g, '\\$&');  // Escape square brackets
+      return `file '${escapedPath}'
 duration ${frame.duration / 1000}`;
-  });
+    });
+  }
 
   console.log(`Writing frames file...`);
   try {
@@ -77,17 +93,20 @@ duration ${frame.duration / 1000}`;
     throw err;
   }
 
+  const outputOptions = [
+    `-vf scale=${canvasWidth * scaleFactor}:${canvasHeight * scaleFactor}`,
+    '-c:v libx264',
+    '-pix_fmt yuv420p',
+    '-shortest'  // Ensure the video ends at the shortest duration when repeating frames
+  ];
+
   console.log(`Starting FFmpeg process...`);
   return new Promise((resolve, reject) => {
     ffmpeg()
       .setFfmpegPath(ffmpegStatic ?? '')
       .input(framesFile)
       .inputOptions(['-f concat', '-safe 0'])
-      .outputOptions([
-        `-vf scale=${canvasWidth * scaleFactor}:${canvasHeight * scaleFactor}`,
-        '-c:v libx264',
-        '-pix_fmt yuv420p'
-      ])
+      .outputOptions(outputOptions)
       .on('start', (commandLine) => {
         console.log('FFmpeg command:', commandLine);
       })
