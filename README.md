@@ -12,4 +12,4 @@
 
 6. run `yarn start`
 
-7. You shuold see the videos start to generate in a folder specified by `outputDir` in `src/index.ts`. It is defaulted to a folder called `output` in the root project directory.
+7. You should see the videos start to generate in a folder specified by `outputDir` in `src/index.ts`. It is defaulted to a folder called `output` in the root project directory.
